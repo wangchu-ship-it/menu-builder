@@ -1,4 +1,4 @@
-const STORE_KEY = "su.menuBuilder.v3";
+const STORE_KEY = "su.menuBuilder.v2.groups";
 const PAGE_SIZE = 10;
 const TODAY = "2026-11-23";
 const SERVICES = ["Breakfast", "Morning tea", "Lunch", "Afternoon tea", "Dinner", "Supper", "24-hour"];
@@ -122,6 +122,10 @@ const state = {
   fsOpen: false,
   form: blankForm(),
   menus: [],
+  recipeGroups: [],
+  menuItemGroups: [],
+  groupKind: "recipe",
+  groupId: null,
 };
 
 function defaultCourses() {
@@ -138,6 +142,15 @@ function blankForm() {
     permission: "editable",
     startMode: "scratch",
     copyId: "",
+    recipeGroupId: "",
+    menuItemGroupId: "",
+    groupName: "",
+    groupItemIds: [],
+    groupQuery: "",
+    aiPrompt: "",
+    aiAllergens: [],
+    aiCategories: [],
+    aiIddsi: ["4", "6"],
     error: "",
     version: "1.0",
     assignId: "",
@@ -148,6 +161,76 @@ function blankForm() {
     pick: { dayIndex: 0, service: "Lunch", course: "Main", choice: "1", query: "", iddsi: "", mode: "add", dishId: "" },
     publishedName: "",
   };
+}
+function allergenTokens(item) {
+  return String(item?.allergen || "").split(",").map((part) => part.trim()).filter(Boolean);
+}
+function catalogAllergens() {
+  const set = new Set();
+  CATALOG.filter((item) => item.status === "Active").forEach((item) => allergenTokens(item).forEach((name) => set.add(name)));
+  return [...set].sort();
+}
+function catalogCategories() {
+  return [...new Set(CATALOG.filter((item) => item.status === "Active").map((item) => item.category))].sort();
+}
+function itemKind(item) {
+  if (["Main Meals", "Breakfast", "Light meals"].includes(item.category)) return "recipe";
+  return "menuItem";
+}
+function recipesInCatalog() {
+  return CATALOG.filter((item) => itemKind(item) === "recipe" && item.status === "Active");
+}
+function menuItemsInCatalog() {
+  return CATALOG.filter((item) => itemKind(item) === "menuItem" && item.status === "Active");
+}
+function seedRecipeGroups() {
+  const all = recipesInCatalog().map((item) => item.id);
+  const texture = all.filter((id) => ["pureed-chicken", "minced-beef", "soft-fish", "pureed-pumpkin", "pureed-porridge", "roast-chicken", "beef-casserole", "tomato-soup", "ham-salad"].includes(id));
+  return [
+    { id: "rg-standard", name: "Standard kitchen recipes", itemIds: all },
+    { id: "rg-texture", name: "Texture-friendly recipes", itemIds: texture.length ? texture : all.slice(0, 12) },
+  ];
+}
+function seedMenuItemGroups() {
+  const all = menuItemsInCatalog().map((item) => item.id);
+  const light = all.filter((id) => ["garlic-mash", "steamed-rice", "roast-potatoes", "couscous", "fruit-salad", "stewed-pears", "yoghurt", "tea", "coffee", "milk"].includes(id));
+  return [
+    { id: "mig-everyday", name: "Everyday menu items", itemIds: all },
+    { id: "mig-light", name: "Light sides and drinks", itemIds: light.length ? light : all.slice(0, 10) },
+  ];
+}
+function recipeGroupById(id) {
+  return state.recipeGroups.find((group) => group.id === id) || null;
+}
+function menuItemGroupById(id) {
+  return state.menuItemGroups.find((group) => group.id === id) || null;
+}
+function allowedItemIds(menuOrForm) {
+  const recipeIds = recipeGroupById(menuOrForm?.recipeGroupId)?.itemIds || [];
+  const menuItemIds = menuItemGroupById(menuOrForm?.menuItemGroupId)?.itemIds || [];
+  return new Set([...recipeIds, ...menuItemIds]);
+}
+function allowedCatalogItems(menuOrForm) {
+  const allowed = allowedItemIds(menuOrForm);
+  return CATALOG.map((entry) => catalogItem(entry.id)).filter((item) => item && item.status === "Active" && allowed.has(item.id));
+}
+function groupIddsiLevels(menuOrForm) {
+  const levels = new Set();
+  allowedCatalogItems(menuOrForm).forEach((item) => {
+    (item.iddsi || ["7"]).forEach((level) => levels.add(String(level)));
+  });
+  return levels;
+}
+function groupMissingIddsi(menuOrForm, required = REQUIRED_IDDSI) {
+  const levels = groupIddsiLevels(menuOrForm);
+  return required.filter((level) => !levels.has(String(level)));
+}
+function groupIddsiWarning(menuOrForm, required = REQUIRED_IDDSI) {
+  if (!menuOrForm?.recipeGroupId || !menuOrForm?.menuItemGroupId) return "";
+  const missing = groupMissingIddsi(menuOrForm, required);
+  if (!missing.length) return "";
+  const labels = missing.map((level) => `IDDSI ${level} (${IDDSI_NAME[level] || level})`);
+  return `These groups can’t cover ${labels.join(" and ")}. Add those texture recipes to the recipe group (or menu item group), then try again.`;
 }
 
 function esc(value) {
@@ -281,14 +364,29 @@ function load() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
     state.menus = saved && Array.isArray(saved.menus) ? saved.menus : seed();
+    state.recipeGroups = saved && Array.isArray(saved.recipeGroups) ? saved.recipeGroups : seedRecipeGroups();
+    state.menuItemGroups = saved && Array.isArray(saved.menuItemGroups) ? saved.menuItemGroups : seedMenuItemGroups();
   } catch (error) {
     state.menus = seed();
+    state.recipeGroups = seedRecipeGroups();
+    state.menuItemGroups = seedMenuItemGroups();
   }
-  const max = state.menus.reduce((n, menu) => Math.max(n, ...(menu.dishes || []).map((dish) => Number(String(dish.id).replace(/\D/g, "")) || 0), Number(String(menu.id).replace(/\D/g, "")) || 0), 100);
+  if (!state.recipeGroups.length) state.recipeGroups = seedRecipeGroups();
+  if (!state.menuItemGroups.length) state.menuItemGroups = seedMenuItemGroups();
+  const ids = [
+    ...state.menus.flatMap((menu) => [menu.id, ...(menu.dishes || []).map((dish) => dish.id)]),
+    ...state.recipeGroups.map((group) => group.id),
+    ...state.menuItemGroups.map((group) => group.id),
+  ];
+  const max = ids.reduce((n, id) => Math.max(n, Number(String(id).replace(/\D/g, "")) || 0), 100);
   seq = max + 1;
 }
 function save() {
-  localStorage.setItem(STORE_KEY, JSON.stringify({ menus: state.menus }));
+  localStorage.setItem(STORE_KEY, JSON.stringify({
+    menus: state.menus,
+    recipeGroups: state.recipeGroups,
+    menuItemGroups: state.menuItemGroups,
+  }));
 }
 
 function visibleMenus() {
@@ -585,7 +683,7 @@ function statButton(focus, count, label) {
 function editorActions(menu) {
   const status = displayStatus(menu);
   const buttons = [
-    `<button class="btn btn-outline" type="button" data-action="export">TV / print</button>`,
+    `<button class="btn btn-outline" type="button" data-action="export">Print</button>`,
     `<button class="btn btn-outline" type="button" data-action="open-validate">Validate</button>`,
   ];
   if (status === "Draft") buttons.push(`<button class="btn btn-outline" type="button" data-action="submit-approval">Submit for approval</button>`);
@@ -724,7 +822,8 @@ function chefView() {
     : `<p class="callout">No IDDSI gaps this week. Tap <strong>+ Add</strong> on any cell to place recipes.</p>`;
   return shell(menu.name, [{ label: "Catering" }, { label: "Menus", action: "goto-list" }, { label: "Chef build" }], `
     <div class="chef-page">
-      <p class="page-sub planner-meta">${esc(cycleLabel(menu.cycle))} · ${esc(fmtDate(menu.start))} – ${esc(fmtDate(endDate(menu)))} · ${esc(status)} · Week view Mon–Sun</p>
+      <p class="page-sub planner-meta">${esc(cycleLabel(menu.cycle))} · ${esc(fmtDate(menu.start))} – ${esc(fmtDate(endDate(menu)))} · ${esc(status)} · ${esc(recipeGroupById(menu.recipeGroupId)?.name || "No recipe group")} · ${esc(menuItemGroupById(menu.menuItemGroupId)?.name || "No menu item group")}</p>
+      ${groupIddsiWarning(menu) ? `<p class="callout callout-warn">${esc(groupIddsiWarning(menu))} Gaps can’t be cleared until the groups include those textures.</p>` : ""}
       ${gapBanner}
       <div class="chef-toolbar">
         <div class="chef-toolbar-left">
@@ -734,7 +833,7 @@ function chefView() {
           <button class="btn btn-text" type="button" data-action="copy-day" ${dishesOn(menu, selected).length ? "" : "disabled"}>Copy day</button>
           ${weeks > 1 ? `<button class="btn btn-text" type="button" data-action="copy-week">Copy week</button>` : ""}
           <button class="btn btn-outline" type="button" data-action="open-validate">Validate</button>
-          <button class="btn btn-outline" type="button" data-action="export">TV / print</button>
+          <button class="btn btn-outline" type="button" data-action="export">Print</button>
         </div>
       </div>
       <div class="chef-board-wrap card is-fill">
@@ -860,7 +959,7 @@ function boardView() {
     }).join("");
     return `<article class="board-day"><h3>${esc(weekday(dayDate(menu, index)))}</h3><p class="when">${esc(fmtDate(dayDate(menu, index)))}</p>${blocks || "<p class='when'>No dishes</p>"}</article>`;
   }).join("");
-  return shell("TV / print menu", [{ label: "Catering" }, { label: "Menus", action: "goto-list" }, { label: "TV / print" }], `
+  return shell("Print menu", [{ label: "Catering" }, { label: "Menus", action: "goto-list" }, { label: "Print" }], `
     <p class="page-sub" style="margin-top:-8px">${esc(menu.name)} · ${menu.version ? `Version ${esc(menu.version)}` : displayStatus(menu)} · Resident-facing board for this week</p>
     <div class="board-scroll"><div class="board">${columns}</div></div>`, `
     <button class="btn btn-quiet" type="button" data-action="back-chef">Back to chef build</button>
@@ -918,8 +1017,70 @@ function validationView() {
     <button class="btn btn-quiet" type="button" data-action="back-chef">Back to chef build</button>
     ${editorActions(menu)}`);
 }
+function groupsView(kind) {
+  const isRecipe = kind === "recipe";
+  const title = isRecipe ? "Recipe groups" : "Menu item groups";
+  const groups = isRecipe ? state.recipeGroups : state.menuItemGroups;
+  const catalog = isRecipe ? recipesInCatalog() : menuItemsInCatalog();
+  const rows = groups.map((group) => {
+    const names = group.itemIds.map((id) => catalogItem(id)?.name).filter(Boolean);
+    const preview = names.slice(0, 4).join(", ") + (names.length > 4 ? ` +${names.length - 4} more` : "");
+    return `<tr>
+      <td><strong>${esc(group.name)}</strong><div class="cell-meta">${group.itemIds.length} ${isRecipe ? "recipes" : "menu items"}</div></td>
+      <td>${esc(preview || "Empty")}</td>
+      <td class="actions-cell">
+        <button class="btn btn-text" type="button" data-action="edit-group" data-kind="${esc(kind)}" data-id="${esc(group.id)}">Edit</button>
+        <button class="btn btn-text" type="button" data-action="delete-group" data-kind="${esc(kind)}" data-id="${esc(group.id)}" ${groups.length <= 1 ? "disabled" : ""}>Delete</button>
+      </td>
+    </tr>`;
+  }).join("");
+  return shell(title, [{ label: "Catering" }, { label: title }], `
+    <section class="card">
+      <div class="card-head">
+        <div class="card-title">
+          <div><h2>${esc(title)}</h2><div class="records">${groups.length} groups · ${catalog.length} ${isRecipe ? "recipes" : "menu items"} in catalog</div></div>
+        </div>
+        <div class="head-actions">
+          <button class="btn btn-primary" type="button" data-action="new-group" data-kind="${esc(kind)}">New ${isRecipe ? "recipe group" : "menu item group"}</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="grid">
+          <thead><tr><th>Group</th><th>Includes</th><th></th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="3">No groups yet.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </section>`);
+}
+function groupEditModal() {
+  const form = state.form;
+  const isRecipe = state.groupKind === "recipe";
+  const title = state.groupId ? (isRecipe ? "Edit recipe group" : "Edit menu item group") : (isRecipe ? "New recipe group" : "New menu item group");
+  const catalog = isRecipe ? recipesInCatalog() : menuItemsInCatalog();
+  const q = String(form.groupQuery || "").trim().toLowerCase();
+  const list = catalog.filter((item) => !q || `${item.name} ${item.category}`.toLowerCase().includes(q));
+  const checks = list.map((item) => `<label class="group-item"><input type="checkbox" name="groupItem" value="${esc(item.id)}" ${form.groupItemIds.includes(item.id) ? "checked" : ""}/><span><strong>${esc(item.name)}</strong><small>${esc(item.category)} · ${esc(item.course)}</small></span></label>`).join("");
+  return `<div class="overlay" data-action="close-modal"><form class="modal modal-wide" id="group-form" data-stop>
+    <div class="modal-head"><div><h2>${esc(title)}</h2><p class="lead">Tick the ${isRecipe ? "recipes" : "menu items"} chefs can use when this group is selected on a menu.</p></div>
+      <button class="icon-hit" type="button" data-action="close-modal" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="form-grid">
+      ${form.error ? `<p class="error">${esc(form.error)}</p>` : ""}
+      <label class="lbl">Group name <span class="req">*</span><input name="groupName" type="text" value="${esc(form.groupName)}" placeholder="${isRecipe ? "e.g. Standard kitchen recipes" : "e.g. Everyday menu items"}" /></label>
+      <label class="field-search"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="group-q" type="search" placeholder="Search ${isRecipe ? "recipes" : "menu items"}" value="${esc(form.groupQuery)}" /></label>
+      <p class="hint">${form.groupItemIds.length} selected</p>
+      <div class="group-item-list">${checks || `<p class="none">Nothing matches.</p>`}</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-quiet" type="button" data-action="close-modal">Cancel</button>
+      <button class="btn btn-primary" type="submit">Save group</button>
+    </div>
+  </form></div>`;
+}
 function view() {
   if (!state.user || state.view === "login") return loginView();
+  if (state.view === "recipe-groups") return groupsView("recipe");
+  if (state.view === "menu-item-groups") return groupsView("menuItem");
   if (state.view === "setup") return setupView();
   if (state.view === "chef") return chefView();
   if (state.view === "editor") return editorView();
@@ -933,6 +1094,7 @@ function layer() {
   const floats = `${kebabMenu()}${sitesPopup()}`;
   if (state.modal === "chef-start") return floats + chefStartModal();
   if (state.modal === "create") return floats + chefStartModal();
+  if (state.modal === "group-edit") return floats + groupEditModal();
   if (state.modal === "delete") return floats + confirmModal("Delete this menu?", "This cannot be undone.", "Delete", "delete-confirm", true);
   if (state.modal === "publish") return floats + publishModal();
   if (state.modal === "published") return floats + publishedModal();
@@ -975,20 +1137,57 @@ function serviceChips(selected) {
 function chefStartModal() {
   const form = state.form;
   const drafts = state.menus.filter((menu) => ["Draft", "Approved", "Pending Approval"].includes(displayStatus(menu)));
+  const allergens = catalogAllergens();
+  const categories = catalogCategories();
+  const aiFields = form.startMode === "ai" ? `
+      <label class="lbl">What should this menu cover? <span class="req">*</span>
+        <textarea name="aiPrompt" rows="3" placeholder="e.g. Light spring lunches, comfort dinners, keep IDDSI coverage, avoid heavy fried meals">${esc(form.aiPrompt)}</textarea>
+        <span class="hint">AI only picks from the recipe group and menu item group you select below.</span>
+      </label>
+      <div class="ai-block">
+        <p class="ai-label">Avoid allergens</p>
+        <div class="chips">${allergens.map((name) => `<label class="chip"><input type="checkbox" name="aiAllergen" value="${esc(name)}" ${form.aiAllergens.includes(name) ? "checked" : ""}/> ${esc(name)}</label>`).join("") || `<span class="hint">No allergens tagged yet.</span>`}</div>
+      </div>
+      <div class="ai-block">
+        <p class="ai-label">Prefer meal groups</p>
+        <div class="chips">${categories.map((name) => `<label class="chip"><input type="checkbox" name="aiCategory" value="${esc(name)}" ${form.aiCategories.includes(name) ? "checked" : ""}/> ${esc(name)}</label>`).join("")}</div>
+      </div>
+      <div class="ai-block">
+        <p class="ai-label">Required textures</p>
+        <div class="chips">${[["4", "IDDSI 4 · Pureed"], ["6", "IDDSI 6 · Soft & bite-sized"]].map(([value, label]) => `<label class="chip"><input type="checkbox" name="aiIddsi" value="${value}" ${form.aiIddsi.includes(value) ? "checked" : ""}/> ${esc(label)}</label>`).join("")}</div>
+      </div>
+  ` : "";
+  const iddsiWarn = form.startMode !== "resume" ? groupIddsiWarning(form) : "";
+  const submitLabel = form.startMode === "resume"
+    ? "Open week board"
+    : form.startMode === "ai"
+      ? "Generate & open week board"
+      : "Create & open week board";
   return `<div class="overlay" data-action="close-modal"><form class="modal modal-wide" id="chef-start-form" data-stop>
-    <div class="modal-head"><div><h2>Create menu</h2><p class="lead">Start empty, copy a menu, or open a draft — then fill the Mon–Sun week board.</p></div>
+    <div class="modal-head"><div><h2>Create menu</h2><p class="lead">Pick one recipe group and one menu item group. The week board can only use items from those two lists.</p></div>
       <button class="icon-hit" type="button" data-action="close-modal" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     </div>
     <div class="form-grid">
       ${form.error ? `<p class="error">${esc(form.error)}</p>` : ""}
       <div class="choices">
         ${startCard("scratch", "Start from scratch", "Empty week board with Breakfast, Lunch and Dinner ready to fill.")}
+        ${startCard("ai", "Create using AI", "Describe the week; fill only from your selected recipe group and menu item group.")}
         ${startCard("copy", "Copy an existing menu", "Duplicate recipes and choices, then tweak the week board.", !state.menus.length)}
         ${startCard("template", "Start from seasonal template", "A filled week with IDDSI 4 and 6 at lunch and dinner.")}
         ${startCard("resume", "Open an existing draft", "Jump back into a menu you already started.", !drafts.length)}
       </div>
       ${form.startMode === "copy" || form.startMode === "resume" ? `<label class="lbl">Menu <span class="req">*</span><select name="copyId"><option value="">Choose a menu</option>${(form.startMode === "resume" ? drafts : state.menus).map((menu) => `<option value="${esc(menu.id)}" ${form.copyId === menu.id ? "selected" : ""}>${esc(menu.name)} · ${esc(displayStatus(menu))}</option>`).join("")}</select></label>` : ""}
+      ${aiFields}
       ${form.startMode !== "resume" ? `
+        <label class="lbl">Recipe group <span class="req">*</span>
+          <select name="recipeGroupId"><option value="">Choose a recipe group</option>${state.recipeGroups.map((group) => `<option value="${esc(group.id)}" ${form.recipeGroupId === group.id ? "selected" : ""}>${esc(group.name)} · ${group.itemIds.length} recipes</option>`).join("")}</select>
+          <span class="hint">Manage lists under Recipe groups.</span>
+        </label>
+        <label class="lbl">Menu item group <span class="req">*</span>
+          <select name="menuItemGroupId"><option value="">Choose a menu item group</option>${state.menuItemGroups.map((group) => `<option value="${esc(group.id)}" ${form.menuItemGroupId === group.id ? "selected" : ""}>${esc(group.name)} · ${group.itemIds.length} menu items</option>`).join("")}</select>
+          <span class="hint">Manage lists under Menu item groups.</span>
+        </label>
+        ${iddsiWarn ? `<p class="callout callout-warn">${esc(iddsiWarn)}</p>` : (form.recipeGroupId && form.menuItemGroupId ? `<p class="callout">These groups include IDDSI 4 and IDDSI 6, so Lunch and Dinner can be covered.</p>` : "")}
         <label class="lbl">New menu name <span class="req">*</span><input name="name" type="text" value="${esc(form.name)}" placeholder="e.g. Spring week for Downtown" /></label>
         <label class="lbl">Cycle length
           <span class="segmented">
@@ -1000,7 +1199,7 @@ function chefStartModal() {
     </div>
     <div class="modal-actions">
       <button class="btn btn-quiet" type="button" data-action="close-modal">Cancel</button>
-      <button class="btn btn-primary" type="submit">${form.startMode === "resume" ? "Open week board" : "Create & open week board"}</button>
+      <button class="btn btn-primary" type="submit">${submitLabel}</button>
     </div>
   </form></div>`;
 }
@@ -1140,30 +1339,39 @@ function itemPicker() {
   const replacing = pick.mode === "replace" ? menu.dishes.find((dish) => dish.id === pick.dishId) : null;
   const taken = new Set(menu.dishes.filter((dish) => dish.dayIndex === pick.dayIndex && dish.service === pick.service && dish.course === pick.course && String(dish.choice) === String(pick.choice) && dish.id !== pick.dishId).map((dish) => dish.itemId));
   const matchesCourse = (item) => item.course === pick.course || (pick.course === "Main" && item.course === "Side");
-  const items = CATALOG.map((entry) => catalogItem(entry.id)).filter((item) => matchesCourse(item) && (!pick.iddsi || item.iddsi.includes(pick.iddsi)) && (!q || `${item.name} ${item.category} ${item.iddsi.join(" ")}`.toLowerCase().includes(q)));
+  const allowed = allowedItemIds(menu);
+  const hasGroups = Boolean(menu.recipeGroupId || menu.menuItemGroupId);
+  const pool = hasGroups ? allowedCatalogItems(menu) : CATALOG.map((entry) => catalogItem(entry.id)).filter(Boolean);
+  const items = pool.filter((item) => matchesCourse(item) && (!pick.iddsi || item.iddsi.includes(pick.iddsi)) && (!q || `${item.name} ${item.category} ${item.iddsi.join(" ")}`.toLowerCase().includes(q)));
   const dayLabel = `${weekday(dayDate(menu, pick.dayIndex))} ${fmtDate(dayDate(menu, pick.dayIndex))}`;
+  const recipeName = recipeGroupById(menu.recipeGroupId)?.name;
+  const menuItemName = menuItemGroupById(menu.menuItemGroupId)?.name;
+  const groupLead = recipeName || menuItemName
+    ? `${recipeName || "No recipe group"} · ${menuItemName || "No menu item group"}`
+    : "All catalog items";
   const courseTabs = coursesFor(menu, pick.service).map((course) => `<button class="chip-btn ${pick.course === course ? "is-on" : ""}" type="button" data-action="pick-course" data-course="${esc(course)}">${esc(course)}</button>`).join("");
   const filters = ["", "4", "6", "7"].map((level) => `<button class="chip-btn ${pick.iddsi === level ? "is-on" : ""}" type="button" data-action="pick-iddsi" data-iddsi="${level}">${level ? `IDDSI ${level}` : "All"}</button>`).join("");
   const rows = items.map((item) => {
     const added = taken.has(item.id);
     const currentItem = replacing && replacing.itemId === item.id;
     const inactive = item.status === "Inactive";
+    const kindLabel = itemKind(item) === "recipe" ? "Recipe" : "Menu item";
     const label = inactive ? "Inactive" : currentItem ? "Current" : added ? "In choice" : (replacing ? "Replace" : "Add");
     return `<button class="picker-row ${added || currentItem ? "is-added" : ""}" type="button" data-action="pick-item" data-item="${esc(item.id)}" ${inactive || added || currentItem ? "disabled" : ""}>
       <span class="swatch" style="background:${SWATCH[item.course] || "#eee"}"></span>
-      <span><strong>${esc(item.name)}</strong><small>${esc(item.category)} · ${Math.round(item.kj)} kJ · ${money(item.cost)}</small><span class="pill-row">${iddsiPills(item.iddsi)}</span></span>
+      <span><strong>${esc(item.name)}</strong><small>${esc(kindLabel)} · ${esc(item.category)} · ${Math.round(item.kj)} kJ · ${money(item.cost)}</small><span class="pill-row">${iddsiPills(item.iddsi)}</span></span>
       <span class="add-label">${label}</span>
     </button>`;
   }).join("");
   return `<div class="overlay drawer-overlay" data-action="close-modal"><div class="drawer" data-stop>
-    <div class="drawer-head modal-head"><div><h2>${replacing ? "Replace recipe" : "Add recipe"}</h2><p class="lead">${esc(dayLabel)} · ${esc(pick.service)}</p></div>
+    <div class="drawer-head modal-head"><div><h2>${replacing ? "Replace item" : "Add item"}</h2><p class="lead">${esc(dayLabel)} · ${esc(pick.service)} · ${esc(groupLead)}</p></div>
       <button class="icon-hit" type="button" data-action="close-modal" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     </div>
     <div class="drawer-body form-grid">
       <div class="chips">${courseTabs}</div>
-      <label class="field-search"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="item-q" type="search" placeholder="Search recipes" value="${esc(pick.query)}" /></label>
+      <label class="field-search"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="item-q" type="search" placeholder="Search recipes and menu items" value="${esc(pick.query)}" /></label>
       <div class="chips">${filters}</div>
-      <div class="picker-list">${rows || `<p class="none">No recipes match this course.</p>`}</div>
+      <div class="picker-list">${rows || `<p class="none">${hasGroups && !allowed.size ? "This menu has empty groups. Edit the recipe group or menu item group first." : "No items match this course in the selected groups."}</p>`}</div>
     </div>
     <div class="drawer-actions"><button class="btn btn-primary" type="button" data-action="close-modal">Done</button></div>
   </div></div>`;
@@ -1249,7 +1457,143 @@ function readChefStart() {
   state.form.start = String(data.get("start") || state.form.start || TODAY);
   state.form.startMode = String(data.get("startMode") || state.form.startMode);
   state.form.copyId = String(data.get("copyId") || "");
+  if (form.querySelector("[name='recipeGroupId']")) state.form.recipeGroupId = String(data.get("recipeGroupId") || "");
+  if (form.querySelector("[name='menuItemGroupId']")) state.form.menuItemGroupId = String(data.get("menuItemGroupId") || "");
+  if (form.querySelector("[name='aiPrompt']")) state.form.aiPrompt = String(data.get("aiPrompt") || "");
+  if (form.querySelector("[name='aiAllergen'], [name='aiCategory'], [name='aiIddsi']")) {
+    state.form.aiAllergens = data.getAll("aiAllergen").map(String);
+    state.form.aiCategories = data.getAll("aiCategory").map(String);
+    state.form.aiIddsi = data.getAll("aiIddsi").map(String);
+  }
   state.form.error = "";
+}
+function readGroupForm() {
+  const form = document.getElementById("group-form");
+  if (!form) return;
+  const data = new FormData(form);
+  state.form.groupName = String(data.get("groupName") || state.form.groupName || "");
+  const visible = [...form.querySelectorAll("input[name='groupItem']")].map((input) => input.value);
+  const selectedVisible = new Set(data.getAll("groupItem").map(String));
+  const kept = state.form.groupItemIds.filter((id) => !visible.includes(id));
+  state.form.groupItemIds = [...kept, ...selectedVisible];
+  state.form.error = "";
+}
+function promptKeywords(prompt) {
+  const text = String(prompt || "").toLowerCase();
+  const words = [];
+  if (/light|spring|fresh|salad|summer/.test(text)) words.push("light", "salad", "fruit", "soup", "yoghurt", "stewed");
+  if (/comfort|winter|hearty|roast|warm/.test(text)) words.push("roast", "casserole", "mash", "pie", "soup", "custard");
+  if (/fish|seafood/.test(text) && !/no fish|without fish|avoid fish/.test(text)) words.push("fish");
+  if (/veg|vegetarian|plant/.test(text)) words.push("vegetable", "nut", "salad", "pumpkin", "tomato", "bean");
+  if (/high protein|protein/.test(text)) words.push("chicken", "beef", "egg", "fish", "bean");
+  return words;
+}
+function scoreAiItem(item, preferCats, keywords) {
+  let score = 0;
+  if (preferCats.size && preferCats.has(item.category)) score += 4;
+  const blob = `${item.name} ${item.category} ${item.course}`.toLowerCase();
+  keywords.forEach((word) => {
+    if (blob.includes(word)) score += 2;
+  });
+  return score;
+}
+function buildAiMenu(cycle, form) {
+  const avoid = new Set(form.aiAllergens || []);
+  const preferCats = new Set(form.aiCategories || []);
+  const needIddsi = (form.aiIddsi || []).length ? [...form.aiIddsi] : [];
+  const keywords = promptKeywords(form.aiPrompt);
+  const prompt = String(form.aiPrompt || "").toLowerCase();
+  if (/no fish|without fish|avoid fish/.test(prompt)) avoid.add("Fish");
+  if (/no milk|dairy free|dairy-free|lactose/.test(prompt)) avoid.add("Milk");
+  if (/no gluten|gluten free|gluten-free/.test(prompt)) avoid.add("Gluten");
+
+  const groupAllowed = allowedItemIds(form);
+  const useGroups = Boolean(form.recipeGroupId || form.menuItemGroupId);
+  const pool = CATALOG.map((entry) => catalogItem(entry.id)).filter((item) => {
+    if (!item || item.status !== "Active") return false;
+    if (useGroups && !groupAllowed.has(item.id)) return false;
+    if (allergenTokens(item).some((name) => avoid.has(name))) return false;
+    return true;
+  });
+
+  const byCourse = (course) => {
+    const list = pool.filter((item) => item.course === course);
+    list.sort((a, b) => scoreAiItem(b, preferCats, keywords) - scoreAiItem(a, preferCats, keywords) || a.name.localeCompare(b.name));
+    return list;
+  };
+
+  const pickItem = (course, dayIndex, used) => {
+    const list = byCourse(course);
+    if (!list.length) return null;
+    const fresh = list.filter((item) => !used.has(item.id));
+    const source = fresh.length ? fresh : list;
+    return source[dayIndex % source.length];
+  };
+
+  const pushDish = (dishes, dayIndex, service, course, choice, item) => {
+    if (!item) return;
+    dishes.push({
+      id: uid(),
+      dayIndex,
+      service,
+      course,
+      choice: String(choice),
+      itemId: item.id,
+      name: item.name,
+      category: item.category,
+      allergen: item.allergen,
+    });
+  };
+
+  const textureFallback = {
+    4: ["pureed-chicken", "pureed-porridge", "pureed-pumpkin"],
+    6: ["soft-fish", "soft-crumble"],
+  };
+  const pickTexture = (level, dayIndex, used) => {
+    const preferred = pool
+      .filter((item) => (item.iddsi || []).map(String).includes(String(level)))
+      .sort((a, b) => scoreAiItem(b, preferCats, keywords) - scoreAiItem(a, preferCats, keywords));
+    const fresh = preferred.filter((item) => !used.has(item.id));
+    if (fresh.length) return fresh[dayIndex % fresh.length];
+    if (preferred.length) return preferred[dayIndex % preferred.length];
+    for (const id of textureFallback[level] || []) {
+      const item = catalogItem(id);
+      if (!item || item.status !== "Active") continue;
+      if (useGroups && !groupAllowed.has(item.id)) continue;
+      if (allergenTokens(item).some((name) => avoid.has(name))) continue;
+      return item;
+    }
+    return null;
+  };
+
+  const plan = [
+    ["Breakfast", [["Cereal", "1"], ["Hot", "1"], ["Fruit", "1"], ["Drink", "1"]]],
+    ["Lunch", [["Soup", "1"], ["Main", "1"], ["Side", "1"], ["Dessert", "1"], ["Drink", "1"]]],
+    ["Dinner", [["Main", "1"], ["Side", "1"], ["Dessert", "1"], ["Drink", "1"]]],
+  ];
+
+  const dishes = [];
+  for (let dayIndex = 0; dayIndex < cycle; dayIndex += 1) {
+    const used = new Set();
+    plan.forEach(([service, courses]) => {
+      courses.forEach(([course, choice]) => {
+        const item = pickItem(course, dayIndex, used);
+        if (!item) return;
+        used.add(item.id);
+        pushDish(dishes, dayIndex, service, course, choice, item);
+      });
+      if (service === "Lunch" || service === "Dinner") {
+        needIddsi.forEach((level, index) => {
+          const item = pickTexture(level, dayIndex + index, used);
+          if (!item) return;
+          used.add(item.id);
+          const course = item.course === "Dessert" || item.course === "Soup" || item.course === "Cereal" ? item.course : "Main";
+          pushDish(dishes, dayIndex, service, course, String(3 + index), item);
+        });
+      }
+    });
+  }
+  return dishes;
 }
 function readSetup() {
   const form = document.getElementById("setup-form");
@@ -1326,7 +1670,51 @@ function openSetup(id) {
 function openChefStart() {
   state.form = blankForm();
   state.form.startMode = "scratch";
+  state.form.recipeGroupId = state.recipeGroups[0]?.id || "";
+  state.form.menuItemGroupId = state.menuItemGroups[0]?.id || "";
   state.modal = "chef-start";
+}
+function openGroups(kind) {
+  state.view = kind === "recipe" ? "recipe-groups" : "menu-item-groups";
+  state.groupKind = kind;
+  state.modal = null;
+  state.menuId = null;
+  keepScroll = false;
+}
+function openGroupEditor(kind, id) {
+  state.groupKind = kind;
+  state.groupId = id || null;
+  const group = id ? (kind === "recipe" ? recipeGroupById(id) : menuItemGroupById(id)) : null;
+  state.form = blankForm();
+  state.form.groupName = group?.name || "";
+  state.form.groupItemIds = group ? [...group.itemIds] : [];
+  state.form.groupQuery = "";
+  state.modal = "group-edit";
+}
+function submitGroupForm() {
+  readGroupForm();
+  const name = state.form.groupName.trim();
+  if (!name) {
+    state.form.error = "Enter a group name.";
+    return;
+  }
+  if (!state.form.groupItemIds.length) {
+    state.form.error = "Select at least one item.";
+    return;
+  }
+  const list = state.groupKind === "recipe" ? state.recipeGroups : state.menuItemGroups;
+  if (state.groupId) {
+    const group = list.find((entry) => entry.id === state.groupId);
+    if (!group) return;
+    group.name = name;
+    group.itemIds = [...state.form.groupItemIds];
+  } else {
+    list.unshift({ id: uid(), name, itemIds: [...state.form.groupItemIds] });
+  }
+  state.modal = null;
+  state.groupId = null;
+  save();
+  toast(state.groupKind === "recipe" ? "Recipe group saved." : "Menu item group saved.");
 }
 function openCreate() {
   openSetup();
@@ -1426,27 +1814,50 @@ function submitChefStart() {
     state.form.error = "Choose a menu to copy.";
     return;
   }
+  if (!state.form.recipeGroupId) {
+    state.form.error = "Choose a recipe group.";
+    return;
+  }
+  if (!state.form.menuItemGroupId) {
+    state.form.error = "Choose a menu item group.";
+    return;
+  }
+  const missingTextures = groupMissingIddsi(state.form);
+  if (missingTextures.length) {
+    state.form.error = groupIddsiWarning(state.form);
+    return;
+  }
   const cycle = Number(state.form.cycle || 14);
   let dishes = [];
   let slots = [];
   let services = [...CORE];
   let courses = defaultCourses();
-  let note = "Empty menu ready. Add recipes on the week board.";
+  let note = "Empty menu ready. Add items from your selected groups.";
+  const allowed = allowedItemIds(state.form);
   if (state.form.startMode === "scratch") {
-    note = "Started from scratch. Fill the week board from Menu items.";
+    note = "Started from scratch. Add only from the selected recipe group and menu item group.";
   }
   if (state.form.startMode === "template") {
-    dishes = tile(cycle);
-    note = "Template loaded. Fill or fix gaps on the week board.";
+    dishes = tile(cycle).filter((dish) => allowed.has(dish.itemId));
+    note = "Template loaded using items from your selected groups.";
+  }
+  if (state.form.startMode === "ai") {
+    if (!state.form.aiPrompt.trim()) {
+      state.form.error = "Describe what you want the AI to build.";
+      return;
+    }
+    dishes = buildAiMenu(cycle, state.form);
+    note = "AI draft ready — only used items from your selected groups.";
   }
   if (state.form.startMode === "copy") {
     const source = state.menus.find((menu) => menu.id === state.form.copyId);
-    dishes = source ? JSON.parse(JSON.stringify(source.dishes)).filter((dish) => dish.dayIndex < cycle).map((dish) => ({ ...dish, id: uid() })) : [];
+    dishes = source ? JSON.parse(JSON.stringify(source.dishes)).filter((dish) => dish.dayIndex < cycle && allowed.has(dish.itemId)).map((dish) => ({ ...dish, id: uid() })) : [];
     slots = source ? JSON.parse(JSON.stringify(source.slots || [])).filter((slot) => slot.dayIndex < cycle) : [];
     services = source ? [...servicesFor(source)] : services;
     courses = source?.courses ? JSON.parse(JSON.stringify(source.courses)) : courses;
-    note = "Menu copied. Tweak the week board for the chef.";
+    note = "Menu copied into your selected groups. Missing items were skipped.";
   }
+  const author = state.user?.name || "Casey Morgan";
   const menu = {
     id: uid(),
     name,
@@ -1454,6 +1865,8 @@ function submitChefStart() {
     start: state.form.start || TODAY,
     services,
     courses,
+    recipeGroupId: state.form.recipeGroupId,
+    menuItemGroupId: state.form.menuItemGroupId,
     budget: 32,
     permission: "editable",
     status: "Draft",
@@ -1462,10 +1875,10 @@ function submitChefStart() {
     siteMode: "keep",
     updated: TODAY,
     created: TODAY,
-    author: "Casey Morgan",
+    author,
     dishes,
     slots,
-    audit: [{ version: "", action: "Created", author: "Casey Morgan", date: TODAY }],
+    audit: [{ version: "", action: state.form.startMode === "ai" ? "Created with AI" : "Created", author, date: TODAY }],
   };
   state.menus.unshift(menu);
   save();
@@ -1477,6 +1890,10 @@ function placeItem(itemId) {
   const pick = state.form.pick;
   const item = catalogItem(itemId);
   if (!menu || !item || item.status === "Inactive") return false;
+  if ((menu.recipeGroupId || menu.menuItemGroupId) && !allowedItemIds(menu).has(item.id)) {
+    toast("That item is outside this menu’s recipe group and menu item group.");
+    return false;
+  }
   const sameChoice = (dish) => dish.dayIndex === pick.dayIndex && dish.service === pick.service && dish.course === pick.course && String(dish.choice) === String(pick.choice) && dish.itemId === item.id;
   if (pick.mode === "replace") {
     const dish = menu.dishes.find((entry) => entry.id === pick.dishId);
@@ -1663,6 +2080,35 @@ function onAction(el) {
   }
   if (action === "open-chef-start") {
     openChefStart();
+    return true;
+  }
+  if (action === "goto-recipe-groups") {
+    openGroups("recipe");
+    return true;
+  }
+  if (action === "goto-menu-item-groups") {
+    openGroups("menuItem");
+    return true;
+  }
+  if (action === "new-group") {
+    openGroupEditor(el.dataset.kind || state.groupKind);
+    return true;
+  }
+  if (action === "edit-group") {
+    openGroupEditor(el.dataset.kind || state.groupKind, id);
+    return true;
+  }
+  if (action === "delete-group") {
+    const kind = el.dataset.kind || state.groupKind;
+    const list = kind === "recipe" ? state.recipeGroups : state.menuItemGroups;
+    if (list.length <= 1) {
+      toast("Keep at least one group.");
+      return true;
+    }
+    if (kind === "recipe") state.recipeGroups = list.filter((group) => group.id !== id);
+    else state.menuItemGroups = list.filter((group) => group.id !== id);
+    save();
+    toast("Group deleted.");
     return true;
   }
   if (action === "open-chef") {
@@ -1973,6 +2419,11 @@ document.addEventListener("input", (event) => {
     state.form.pick.query = event.target.value;
     render();
   }
+  if (event.target.id === "group-q") {
+    readGroupForm();
+    state.form.groupQuery = event.target.value;
+    render();
+  }
   if (event.target.name === "siteQuery") {
     readAssign();
     render();
@@ -1995,8 +2446,13 @@ document.addEventListener("change", (event) => {
     render();
     return;
   }
-  if (target.name === "startMode" || (target.form && target.form.id === "chef-start-form" && (target.name === "cycle" || target.name === "start" || target.name === "copyId"))) {
+  if (target.name === "startMode" || (target.form && target.form.id === "chef-start-form" && ["cycle", "start", "copyId", "recipeGroupId", "menuItemGroupId", "aiAllergen", "aiCategory", "aiIddsi"].includes(target.name))) {
     readChefStart();
+    render();
+    return;
+  }
+  if (target.form && target.form.id === "group-form" && target.name === "groupItem") {
+    readGroupForm();
     render();
     return;
   }
@@ -2026,7 +2482,7 @@ document.addEventListener("change", (event) => {
 });
 document.addEventListener("submit", (event) => {
   const id = event.target.id;
-  if (!["login-form", "setup-form", "chef-start-form", "publish-form", "assign-form", "copy-form", "copy-week-form", "services-form"].includes(id)) return;
+  if (!["login-form", "setup-form", "chef-start-form", "group-form", "publish-form", "assign-form", "copy-form", "copy-week-form", "services-form"].includes(id)) return;
   event.preventDefault();
   if (id === "login-form") submitLogin();
   if (id === "setup-form") {
@@ -2034,6 +2490,7 @@ document.addEventListener("submit", (event) => {
     submitSetup(submitter?.value || "draft");
   }
   if (id === "chef-start-form") submitChefStart();
+  if (id === "group-form") submitGroupForm();
   if (id === "publish-form") submitPublish();
   if (id === "assign-form") submitAssign();
   if (id === "copy-form") submitCopy();

@@ -502,6 +502,7 @@ input[type="text"], input[type="search"], input[type="date"], input[type="number
 input[type="text"], input[type="date"], input[type="number"], select { height: 48px; }
 textarea { min-height: 96px; resize: vertical; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(0, 156, 166, 0.15); }
+.search input[type="search"],
 .field-search input[type="search"],
 .field-search input[type="text"] {
   border: 0;
@@ -511,7 +512,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--t
   height: auto;
   min-height: 0;
   box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
 }
+.search input[type="search"]:focus,
 .field-search input[type="search"]:focus,
 .field-search input[type="text"]:focus {
   border: 0;
@@ -554,6 +558,12 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--t
 .choice-card small { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; line-height: 1.4; }
 .choice-card:has(input:checked) { border-color: var(--teal); background: #f3fbfb; }
 .choice-card input { margin-top: 3px; accent-color: var(--teal); }
+.ai-block { display: flex; flex-direction: column; gap: 8px; }
+.ai-label {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
 .modal-actions, .drawer-actions {
   display: flex;
   justify-content: flex-end;

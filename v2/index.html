@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Menus v2 | SoupedUp</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="menu.css?v=groups2" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">Souped<span>Up</span></div>
+      <label class="search">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" placeholder="Search" aria-label="Search navigation" />
+      </label>
+      <nav class="nav-scroll" aria-label="Primary">
+        <p class="nav-label">Menu</p>
+        <button class="nav-item" type="button" data-action="soon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
+          Home
+        </button>
+        <button class="nav-item is-open" type="button" data-action="noop">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 10h16M7 6h10M6 14h12v5a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1z"/></svg>
+          Catering
+          <svg class="chev" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 15 6-6 6 6"/></svg>
+        </button>
+        <div class="subnav">
+          <a class="nav-sub" href="../residents-list.html"><i class="pip"></i> Residents</a>
+          <a class="nav-sub" href="../menu-items-list.html"><i class="pip"></i> Menu items</a>
+          <button class="nav-sub is-active" type="button" data-action="goto-list"><i class="pip"></i> Menus</button>
+          <button class="nav-sub" type="button" data-action="goto-recipe-groups"><i class="pip"></i> Recipe groups</button>
+          <button class="nav-sub" type="button" data-action="goto-menu-item-groups"><i class="pip"></i> Menu item groups</button>
+        </div>
+        <button class="nav-item" type="button" data-action="soon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="m10 9 6 3-6 3z"/></svg>
+          Training
+        </button>
+        <button class="nav-item" type="button" data-action="soon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 4h8v16H8z"/><path d="m9 13 2 2 4-4"/></svg>
+          Surveys
+        </button>
+        <button class="nav-item" type="button" data-action="soon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/></svg>
+          Budget
+        </button>
+        <button class="nav-item" type="button" data-action="soon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>
+          Events
+        </button>
+        <button class="nav-item" type="button" id="fs-toggle" data-action="toggle-fs">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 5 6v6c0 4 3 6.5 7 8 4-1.5 7-4 7-8V6z"/></svg>
+          Food safety
+          <svg class="chev" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="subnav" id="fs-sub" hidden>
+          <button class="nav-sub" type="button" data-action="soon"><i class="pip"></i> HACCP</button>
+          <button class="nav-sub" type="button" data-action="soon"><i class="pip"></i> Meal planning</button>
+        </div>
+        <button class="nav-item" type="button" data-action="soon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 19c1.2-3 3.2-4.5 6-4.5S13.8 16 15 19"/><circle cx="17" cy="9" r="2.2"/><path d="M16 14.5c2.2.3 3.6 1.5 4.5 4"/></svg>
+          Admin
+        </button>
+      </nav>
+      <div class="help">
+        <p class="nav-label">Help</p>
+        <button class="help-item" type="button" data-action="soon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 5h9a3 3 0 0 1 3 3v11H9a3 3 0 0 0-3 3z"/><path d="M6 5a3 3 0 0 0-3 3v14"/></svg>
+          Knowledge Base
+        </button>
+        <button class="help-item" type="button" data-action="soon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>
+          How To Videos
+        </button>
+        <button class="help-item" type="button" data-action="soon">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16v10H4z"/><path d="m4 7 8 6 8-6"/></svg>
+          Ticket Management
+        </button>
+      </div>
+    </aside>
+    <div class="sidebar-backdrop" data-action="toggle-sidebar" hidden></div>
+    <div class="workspace">
+      <header class="topbar">
+        <button class="icon-btn menu-toggle" type="button" data-action="toggle-sidebar" aria-label="Open menu">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <button class="site-switch" type="button" data-action="soon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#009ca6" stroke-width="1.8"><path d="M4 20V6l8-3 8 3v14"/><path d="M9 20v-6h6v6M9 9h.01M12 9h.01M15 9h.01M9 13h.01M12 13h.01M15 13h.01"/></svg>
+          Head Office
+        </button>
+        <div class="top-actions">
+          <button class="icon-btn" type="button" aria-label="Notifications" data-action="soon">
+            <span class="alert-dot"></span>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
+          </button>
+          <button class="icon-btn" type="button" aria-label="Help" data-action="soon">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.2 2.4c-.8.4-1.2.9-1.2 1.6V14"/><path d="M12 17h.01"/></svg>
+          </button>
+          <button class="user-chip" type="button" data-action="logout" title="Sign out" aria-label="Sign out">
+            <span class="user-copy"><strong>Alex Rivera</strong><small>Chef</small></span>
+            <span class="avatar" aria-hidden="true">AR</span>
+          </button>
+        </div>
+      </header>
+      <div class="ho-banner">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+        Head Office — You’re viewing data across all sites.
+      </div>
+      <main id="main"></main>
+    </div>
+  </div>
+  <div id="layer"></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="menu.js?v=groups2"></script>
+</body>
+</html>
